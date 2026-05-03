@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 from typing import Dict, List, Optional, Tuple
 
 import pytorch_lightning as pl
@@ -28,14 +29,14 @@ class Experiment:
     def __init__(self, experiment_config: ExperimentConfig):
         self.config = experiment_config
 
-        self.train_loader, self.valid_loader, self.mean, self.std = self._build_dataloaders()
+        self.train_loader, self.valid_loader = self._build_dataloaders()
         self.data_module = DataModule(
             train_loader=self.train_loader,
             valid_loader=self.valid_loader,
         )
 
         self.model = self._build_model()
-        self.loss_fn = self._build_loss_fn()
+        self.train_loss_fn, self.valid_loss_fn = self._build_loss_fns()
         self.train_metric, self.valid_metric = self._build_metrics()
         self.optimizer = self._build_optimizer()
         self.lr_scheduler_config = self._build_scheduler_config()
@@ -69,21 +70,46 @@ class Experiment:
                 f"Unsupported optimizer: {optimizer_name}"
             )
 
+        decay_params = []
+        no_decay_params = []
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+
+            # Match previous training behavior: no weight decay for bias and norm params.
+            if param.dim() == 1 or name.endswith(".bias"):
+                no_decay_params.append(param)
+            else:
+                decay_params.append(param)
+
+        optimizer_grouped_parameters = [
+            {
+                "params": decay_params,
+                "weight_decay": self.config.train.weight_decay,
+            },
+            {
+                "params": no_decay_params,
+                "weight_decay": 0.0,
+            },
+        ]
+
         return AdamW(
-            self.model.parameters(),
+            optimizer_grouped_parameters,
             lr=self.config.train.learning_rate,
-            weight_decay=self.config.train.weight_decay,
         )
 
-    def _build_loss_fn(self) -> nn.Module:
+    def _build_loss_fns(self) -> Tuple[nn.Module, nn.Module]:
         loss_name = str(self.config.train.loss_type).strip().lower()
         # Extend here to support more loss types (e.g. "focal").
         if loss_name != "cross_entropy":
             raise ValueError(f"Unsupported loss: {loss_name}")
 
-        return nn.CrossEntropyLoss(
+        train_loss_fn = nn.CrossEntropyLoss(
             label_smoothing=self.config.train.label_smoothing
         )
+        # Keep validation loss unsmoothed for clearer model selection signal.
+        valid_loss_fn = nn.CrossEntropyLoss(label_smoothing=0.0)
+        return train_loss_fn, valid_loss_fn
 
     def _build_metrics(self) -> Tuple[nn.Module, nn.Module]:
         metric_name = str(self.config.train.metric_type).strip().lower()
@@ -93,8 +119,8 @@ class Experiment:
 
         num_classes = self.config.model.num_classes
         return (
-            MulticlassAccuracy(num_classes=num_classes),
-            MulticlassAccuracy(num_classes=num_classes),
+            MulticlassAccuracy(num_classes=num_classes, average="micro"),
+            MulticlassAccuracy(num_classes=num_classes, average="micro"),
         )
 
     def _build_scheduler_config(self):
@@ -166,7 +192,8 @@ class Experiment:
         return ClassifierModule(
             model=self.model,
             optimizer=self.optimizer,
-            loss_fn=self.loss_fn,
+            train_loss_fn=self.train_loss_fn,
+            valid_loss_fn=self.valid_loss_fn,
             train_metric=self.train_metric,
             valid_metric=self.valid_metric,
             lr_scheduler_config=self.lr_scheduler_config,
@@ -174,9 +201,9 @@ class Experiment:
 
     @staticmethod
     def summarize_history(history: Dict[str, List[float]]) -> Dict[str, float]:
-        best_epoch = min(
-            range(len(history["valid_loss"])),
-            key=lambda i: history["valid_loss"][i],
+        best_epoch = max(
+            range(len(history["valid_acc"])),
+            key=lambda i: history["valid_acc"][i],
         )
         return {
             "epochs_ran": len(history["valid_loss"]),
@@ -195,6 +222,8 @@ class Experiment:
         experiments_xlsx: Optional[Path] = None,
         exp_name: Optional[str] = None,
     ) -> Dict[str, float]:
+        run_started_at = time.perf_counter()
+
         matmul_precision = str(self.config.train.matmul_precision).strip().lower()
         if matmul_precision not in {"medium", "high"}:
             raise ValueError(
@@ -230,6 +259,12 @@ class Experiment:
         history = self.history_callback.history
         metrics_data = self.summarize_history(history)
         metrics_data["exp_name"] = exp_name or version_name
+        metrics_data["execution_seconds"] = round(
+            time.perf_counter() - run_started_at, 3
+        )
+        metrics_data["execution_minutes"] = round(
+            metrics_data["execution_seconds"] / 60.0, 3
+        )
 
         target_experiments_xlsx = Path(
             experiments_xlsx or self.config.paths.experiments_file
@@ -243,6 +278,10 @@ class Experiment:
 
         print("Experiment complete")
         print(f"Best valid loss approx: {min(history['valid_loss']):.4f}")
+        print(
+            "Execution time (seconds): "
+            f"{metrics_data['execution_seconds']:.3f}"
+        )
         print(f"Saved experiment record to: {target_experiments_xlsx}")
         print(f"version_name: {record['version_name']}")
 

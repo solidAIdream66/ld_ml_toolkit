@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from .configs import DataConfig
-from .data_pipeline import get_class_names, image_common_transforms
+from .data_pipeline import image_common_transforms
 
 
 class TestImageDataset(Dataset):
@@ -47,7 +47,6 @@ def generate_submission(
 
     root = Path(data_config.data_root)
     test_root = root / data_config.test_split
-    class_names = get_class_names(data_config)
 
     test_df = pd.read_csv(test_csv_path)
     transform = image_common_transforms(data_config.image_size, mean, std)
@@ -64,7 +63,7 @@ def generate_submission(
         for images, _ in loader:
             images = images.to(device)
             preds = model(images).argmax(dim=1).cpu().tolist()
-            predictions.extend(class_names[pred] for pred in preds)
+            predictions.extend(loader.dataset.class_to_idx[pred] for pred in preds)
 
     submission_df = test_df.copy()
     submission_df["CLASS"] = predictions

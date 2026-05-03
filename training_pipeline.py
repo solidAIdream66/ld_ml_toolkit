@@ -8,8 +8,6 @@ from .experiment_tracking import (
 )
 
 
-
-
 def run_experiments(
     experiment_settings_list: List[Dict[str, Any]],
     base_experiment_settings: Optional[Dict[str, Any]] = None,
@@ -30,7 +28,7 @@ def run_experiments(
         print(f"Model checkpoint at: {experiment_config.paths.checkpoint_dir}")
 
         experiment = Experiment(experiment_config)
-        print(f"Computed mean={experiment.mean}, std={experiment.std}")
+        
         result = experiment.run(
             version_name=current_version_name,
             experiments_xlsx=experiments_xlsx,

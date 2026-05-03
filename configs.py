@@ -9,6 +9,7 @@ class DataConfig:
     train_split: str = "Train"
     valid_split: str = "Valid"
     test_split: str = "Test"
+    train_valid_split: float = 0.8
     image_size: Tuple[int, int] = (224, 224)
     batch_size: int = 32
     num_workers: int = 2

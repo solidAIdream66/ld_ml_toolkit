@@ -4,7 +4,6 @@ from .data_pipeline import (
     compute_mean_std,
     image_common_transforms,
     image_preprocess_transforms,
-    get_class_names,
 )
 from .models import ConvClassifier
 from .submission_pipeline import generate_submission
@@ -20,6 +19,7 @@ from .experiment_tracking import (
     load_experiment_config,
     setup_log_directory,
 )
+from .dataset.csv_folder import CSVFolder
 
 
 
@@ -31,7 +31,6 @@ __all__ = [
     "TrainConfig",
     "build_train_valid_loaders",
     "compute_mean_std",
-    "get_class_names",
     "ConvClassifier",
     "Experiment",
     "run_experiments",
@@ -44,4 +43,5 @@ __all__ = [
     "generate_submission",
     "image_common_transforms",
     "image_preprocess_transforms",
+    "CSVFolder",
 ]

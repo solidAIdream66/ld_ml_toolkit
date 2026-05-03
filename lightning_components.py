@@ -8,6 +8,8 @@ from torchmetrics.classification import MulticlassAccuracy
 
 from .configs import PathsConfig, TrainConfig
 
+import pytorch_lightning as pl
+
 
 class DataModule(pl.LightningDataModule):
     def __init__(self, train_loader, valid_loader):
@@ -20,6 +22,7 @@ class DataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         return self._valid_loader
+    
 
 
 class ClassifierModule(pl.LightningModule):
@@ -27,7 +30,8 @@ class ClassifierModule(pl.LightningModule):
         self,
         model: nn.Module,
         optimizer,
-        loss_fn: nn.Module,
+        train_loss_fn: nn.Module,
+        valid_loss_fn: nn.Module,
         train_metric: nn.Module,
         valid_metric: nn.Module,
         lr_scheduler_config=None,
@@ -35,7 +39,8 @@ class ClassifierModule(pl.LightningModule):
         super().__init__()
         self.model = model
         self.optimizer = optimizer
-        self.loss_fn = loss_fn
+        self.train_loss_fn = train_loss_fn
+        self.valid_loss_fn = valid_loss_fn
         self.train_metric = train_metric
         self.valid_metric = valid_metric
         self.lr_scheduler_config = lr_scheduler_config
@@ -46,23 +51,37 @@ class ClassifierModule(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         images, targets = batch
         logits = self(images)
-        loss = self.loss_fn(logits, targets)
+        loss = self.train_loss_fn(logits, targets)
         preds = logits.argmax(dim=1)
-        acc = self.train_metric(preds, targets)
+        self.train_metric.update(preds, targets)
 
-        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("train/acc", acc, on_step=False, on_epoch=True, prog_bar=True)
+        self.log(
+            "train/loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            batch_size=targets.size(0),
+        )
+        self.log("train/acc", self.train_metric, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         images, targets = batch
         logits = self(images)
-        loss = self.loss_fn(logits, targets)
+        loss = self.valid_loss_fn(logits, targets)
         preds = logits.argmax(dim=1)
-        acc = self.valid_metric(preds, targets)
+        self.valid_metric.update(preds, targets)
 
-        self.log("valid/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("valid/acc", acc, on_step=False, on_epoch=True, prog_bar=True)
+        self.log(
+            "valid/loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            batch_size=targets.size(0),
+        )
+        self.log("valid/acc", self.valid_metric, on_step=False, on_epoch=True, prog_bar=True)
 
     def configure_optimizers(self):
         if self.lr_scheduler_config is None:
@@ -95,11 +114,30 @@ class HistoryCallback(pl.Callback):
     def on_validation_epoch_end(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ) -> None:
+        # Skip the pre-training sanity validation pass so history aligns with epoch count.
+        if getattr(trainer, "sanity_checking", False):
+            return
+
         metrics = trainer.callback_metrics
         self.history["train_loss"].append(self._to_float(metrics.get("train/loss")))
         self.history["train_acc"].append(self._to_float(metrics.get("train/acc")))
         self.history["valid_loss"].append(self._to_float(metrics.get("valid/loss")))
         self.history["valid_acc"].append(self._to_float(metrics.get("valid/acc")))
+
+        # Also log an epoch-indexed view for TensorBoard plots.
+        # logger = trainer.logger
+        # experiment = getattr(logger, "experiment", None)
+        # if experiment is not None and hasattr(experiment, "add_scalar"):
+        #     epoch_idx = trainer.current_epoch + 1
+        #     train_loss = self._to_float(metrics.get("train/loss"))
+        #     train_acc = self._to_float(metrics.get("train/acc"))
+        #     valid_loss = self._to_float(metrics.get("valid/loss"))
+        #     valid_acc = self._to_float(metrics.get("valid/acc"))
+
+        #     experiment.add_scalar("epoch/train_loss", train_loss, epoch_idx)
+        #     experiment.add_scalar("epoch/train_acc", train_acc, epoch_idx)
+        #     experiment.add_scalar("epoch/valid_loss", valid_loss, epoch_idx)
+        #     experiment.add_scalar("epoch/valid_acc", valid_acc, epoch_idx)
 
 
 def resolve_accelerator_and_devices(device_name: str):

@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from torchvision.transforms import v2
-
+from .dataset.csv_folder import CSVFolder
 from .configs import DataConfig
 
 
@@ -57,41 +57,9 @@ def image_augmented_transforms(
     ])
 
 
-def create_loader(
-    root: Path,
-    transform,
-    batch_size: int,
-    shuffle: bool,
-    num_workers: int,
-    pin_memory: bool,
-    persistent_workers: bool = False,
-) -> DataLoader:
-    dataset = datasets.ImageFolder(root=str(root), transform=transform)
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-        persistent_workers=persistent_workers and num_workers > 0,
-    )
-
-
 def compute_mean_std(
-    train_root: Path,
-    image_size: Tuple[int, int],
-    batch_size: int = 32,
-    num_workers: int = 2,
-) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
-    loader = create_loader(
-        root=train_root,
-        transform=image_preprocess_transforms(image_size),
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=False,
-        persistent_workers=False,
-    )
+    loader: DataLoader,
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:   
 
     batch_mean = torch.zeros(3)
     batch_mean_sq = torch.zeros(3)
@@ -114,16 +82,46 @@ def build_train_valid_loaders(
     std: Optional[Tuple[float, float, float]] = None,
 ):
     root = Path(config.data_root)
-    train_root = _resolve_split_dir(root, config.train_split)
-    valid_root = _resolve_split_dir(root, config.valid_split)
+    try:
+        train_root = _resolve_split_dir(root, config.train_split)
+        valid_root = _resolve_split_dir(root, config.valid_split)
+        train_dataset = datasets.ImageFolder(
+                root=str(train_root),
+            )
+        valid_dataset = datasets.ImageFolder(
+                root=str(valid_root),
+            )
+        is_subset = False
+    except:
+        dataset = CSVFolder(data_root=root)
+        train_size = int(config.train_valid_split * len(dataset))
+        valid_size = len(dataset) - train_size
+        # Split into two separate base datasets so transforms don't share state
+        train_base = CSVFolder(data_root=root)
+        valid_base = CSVFolder(data_root=root)
+        generator = torch.Generator().manual_seed(42)
+        indices = torch.randperm(len(dataset), generator=generator).tolist()
+        train_dataset = torch.utils.data.Subset(train_base, indices[:train_size])
+        valid_dataset = torch.utils.data.Subset(valid_base, indices[train_size:])
+        is_subset = True
 
     if mean is None or std is None:
-        mean, std = compute_mean_std(
-            train_root=train_root,
-            image_size=config.image_size,
-            batch_size=config.batch_size,
-            num_workers=config.num_workers,
-        )
+        preprocess = image_preprocess_transforms(config.image_size)
+        # preprocess_ds = _TransformWrapper(train_dataset, preprocess) if is_subset else train_dataset
+        if not is_subset:
+            train_dataset.transform = preprocess
+        else:
+            train_dataset.dataset.transform = preprocess
+        loader = DataLoader(
+                train_dataset,
+                batch_size=config.batch_size,
+                shuffle=False,
+                num_workers=config.num_workers,
+                pin_memory=False,
+                persistent_workers=config.num_workers > 0,
+            )
+        mean, std = compute_mean_std(loader)
+        print(f"Computed mean={mean}, std={std}")
 
     train_transform = (
         image_augmented_transforms(config.image_size, mean, std)
@@ -132,29 +130,31 @@ def build_train_valid_loaders(
     )
     valid_transform = image_common_transforms(config.image_size, mean, std)
 
-    train_loader = create_loader(
-        root=train_root,
-        transform=train_transform,
+    if is_subset:
+        train_dataset.dataset.transform = train_transform
+        valid_dataset.dataset.transform = valid_transform
+    else:
+        train_dataset.transform = train_transform
+        valid_dataset.transform = valid_transform
+
+    train_loader = DataLoader(
+        train_dataset,
         batch_size=config.batch_size,
         shuffle=True,
         num_workers=config.num_workers,
         pin_memory=config.pin_memory,
-        persistent_workers=True,
+        persistent_workers=config.num_workers > 0,
     )
-    valid_loader = create_loader(
-        root=valid_root,
-        transform=valid_transform,
+    valid_loader = DataLoader(
+        valid_dataset,
         batch_size=config.batch_size,
         shuffle=False,
         num_workers=config.num_workers,
         pin_memory=config.pin_memory,
-        persistent_workers=True,
+        persistent_workers=config.num_workers > 0,
     )
 
-    return train_loader, valid_loader, mean, std
+    return train_loader, valid_loader
 
 
-def get_class_names(config: DataConfig):
-    root = Path(config.data_root)
-    train_root = _resolve_split_dir(root, config.train_split)
-    return datasets.ImageFolder(root=str(train_root)).classes
+
