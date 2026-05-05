@@ -9,6 +9,9 @@ from .dataset.csv_folder import CSVFolder
 from .configs import DataConfig
 
 
+_DATASET_STATS_CACHE: dict[tuple, Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = {}
+
+
 def _resolve_split_dir(root: Path, split_name: str) -> Path:
     direct = root / split_name
     if direct.exists():
@@ -81,7 +84,8 @@ def build_train_valid_loaders(
     mean: Optional[Tuple[float, float, float]] = None,
     std: Optional[Tuple[float, float, float]] = None,
 ):
-    root = Path(config.data_root)
+    root = Path(config.data_root)    
+
     try:
         train_root = _resolve_split_dir(root, config.train_split)
         valid_root = _resolve_split_dir(root, config.valid_split)
@@ -92,9 +96,19 @@ def build_train_valid_loaders(
                 root=str(valid_root),
             )
         is_subset = False
+        stats_cache_key = (
+            "imagefolder",
+            str(root.resolve()),
+            tuple(config.image_size),
+            train_root.name.lower(),
+            valid_root.name.lower(),
+        )
     except:
         dataset = CSVFolder(data_root=root)
-        train_size = int(config.train_valid_split * len(dataset))
+        train_valid_split = config.extras.get(
+            "train_valid_split", config.train_valid_split
+        )
+        train_size = int(train_valid_split * len(dataset))
         valid_size = len(dataset) - train_size
         # Split into two separate base datasets so transforms don't share state
         train_base = CSVFolder(data_root=root)
@@ -104,24 +118,38 @@ def build_train_valid_loaders(
         train_dataset = torch.utils.data.Subset(train_base, indices[:train_size])
         valid_dataset = torch.utils.data.Subset(valid_base, indices[train_size:])
         is_subset = True
+        stats_cache_key = (
+            "csvfolder",
+            str(root.resolve()),
+            tuple(config.image_size),
+            float(train_valid_split),
+        )
 
     if mean is None or std is None:
-        preprocess = image_preprocess_transforms(config.image_size)
-        # preprocess_ds = _TransformWrapper(train_dataset, preprocess) if is_subset else train_dataset
-        if not is_subset:
-            train_dataset.transform = preprocess
+        cached_stats = _DATASET_STATS_CACHE.get(stats_cache_key)
+        if cached_stats is not None:
+            mean, std = cached_stats
+            print(f"Loaded cached mean={mean}, std={std}")
         else:
-            train_dataset.dataset.transform = preprocess
-        loader = DataLoader(
-                train_dataset,
-                batch_size=config.batch_size,
-                shuffle=False,
-                num_workers=config.num_workers,
-                pin_memory=False,
-                persistent_workers=config.num_workers > 0,
-            )
-        mean, std = compute_mean_std(loader)
-        print(f"Computed mean={mean}, std={std}")
+            preprocess = image_preprocess_transforms(config.image_size)
+            if not is_subset:
+                train_dataset.transform = preprocess
+            else:
+                train_dataset.dataset.transform = preprocess
+            loader = DataLoader(
+                    train_dataset,
+                    batch_size=config.batch_size,
+                    shuffle=False,
+                    num_workers=config.num_workers,
+                    pin_memory=False,
+                    # One-shot scan: never use persistent workers here.
+                    # Persistent workers on a temporary loader incur a slow
+                    # worker-process shutdown on Windows before the scan finishes.
+                    persistent_workers=False,
+                )
+            mean, std = compute_mean_std(loader)
+            _DATASET_STATS_CACHE[stats_cache_key] = (mean, std)
+            print(f"Computed mean={mean}, std={std}")
 
     train_transform = (
         image_augmented_transforms(config.image_size, mean, std)
@@ -151,6 +179,8 @@ def build_train_valid_loaders(
         shuffle=False,
         num_workers=config.num_workers,
         pin_memory=config.pin_memory,
+        # Keep workers alive between epochs: on Windows, re-spawning workers
+        # at each validation start adds ~200ms × num_workers of dead time.
         persistent_workers=config.num_workers > 0,
     )
 

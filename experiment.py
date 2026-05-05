@@ -1,6 +1,6 @@
 from pathlib import Path
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pytorch_lightning as pl
 import torch
@@ -45,8 +45,21 @@ class Experiment:
         self.checkpoint_callback = self._build_checkpoint_callback()
         self.lightning_module = self._build_lightning_module()
 
-    def _extras_section(self, section_name: str) -> Dict:
-        section = self.config.extras.get(section_name, {})
+    def _extras_section(self, section_name: str, owner: str = "train") -> Dict:
+        """Look up a named extras sub-section.
+
+        Checks <owner>.extras first (new style), then falls back to
+        ExperimentConfig.extras for backward compatibility.
+        """
+        owner_extras: Dict[str, Any] = {}
+        if owner == "train":
+            owner_extras = self.config.train.extras
+        elif owner == "data":
+            owner_extras = self.config.data.extras
+        elif owner == "model":
+            owner_extras = self.config.model.extras
+
+        section = owner_extras.get(section_name) or self.config.extras.get(section_name, {})
         if isinstance(section, dict):
             return section
         return {}
@@ -124,12 +137,12 @@ class Experiment:
         )
 
     def _build_scheduler_config(self):
-        raw = self.config.train.scheduler_type or "none"
+        raw = self.config.train.scheduler or "none"
         scheduler_type = raw.strip().lower()
         if scheduler_type in {"none", "off", "disabled"}:
             return None
 
-        scheduler_cfg = self._extras_section("scheduler")
+        scheduler_cfg = self.config.train.scheduler_params or {}
 
         # Extend here to support more scheduler types.
         # Each branch must return a Lightning lr_scheduler config dict
@@ -235,14 +248,24 @@ class Experiment:
         accelerator, devices = resolve_accelerator_and_devices(
             self.config.train.device
         )
+        deterministic = bool(self.config.train.deterministic)
+        torch.backends.cudnn.benchmark = not deterministic
+
+        precision = self.config.train.precision
+        if accelerator == "cpu" and precision != "32":
+            print(
+                f"Requested precision={precision!r} on CPU; falling back to '32'."
+            )
+            precision = "32"
 
         trainer = pl.Trainer(
             max_epochs=self.config.train.epochs,
             accelerator=accelerator,
             devices=devices,
+            precision=precision,
             logger=self.logger,
             callbacks=[self.checkpoint_callback, self.history_callback],
-            deterministic=True,
+            deterministic=deterministic,
             enable_checkpointing=True,
             log_every_n_steps=20,
         )
@@ -259,12 +282,9 @@ class Experiment:
         history = self.history_callback.history
         metrics_data = self.summarize_history(history)
         metrics_data["exp_name"] = exp_name or version_name
-        metrics_data["execution_seconds"] = round(
-            time.perf_counter() - run_started_at, 3
-        )
-        metrics_data["execution_minutes"] = round(
-            metrics_data["execution_seconds"] / 60.0, 3
-        )
+        metrics_data["execution_hours"] = round(
+            (time.perf_counter() - run_started_at) / 3600.0, 3
+        )        
 
         target_experiments_xlsx = Path(
             experiments_xlsx or self.config.paths.experiments_file
@@ -279,8 +299,8 @@ class Experiment:
         print("Experiment complete")
         print(f"Best valid loss approx: {min(history['valid_loss']):.4f}")
         print(
-            "Execution time (seconds): "
-            f"{metrics_data['execution_seconds']:.3f}"
+            "Execution time (hours): "
+            f"{metrics_data['execution_hours']:.3f}"
         )
         print(f"Saved experiment record to: {target_experiments_xlsx}")
         print(f"version_name: {record['version_name']}")

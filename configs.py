@@ -1,6 +1,6 @@
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -14,15 +14,45 @@ class DataConfig:
     batch_size: int = 32
     num_workers: int = 2
     pin_memory: bool = True
+    extras: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class ModelConfig:
     num_classes: int = 3
-    channels: Tuple[int, ...] = (64, 128, 256, 512, 512)
-    blocks_per_stage: int = 2
+    model: str = "vgg_style"
     use_batch_norm: bool = True
     dropout: float = 0
+    channels: Optional[List[int]] = None
+    blocks_per_stage: Optional[List[int]] = None
+    extras: Dict[str, Dict] = field(
+        default_factory=lambda: {
+            "model": {
+                "vgg_style": {
+                    "channels": [64, 128, 256, 512, 512],
+                    "blocks_per_stage": [2, 2, 2, 2, 2],
+                },
+                "res_style": {
+                    "channels": [64, 128, 256, 512],
+                    "blocks_per_stage": [3, 4, 6, 3],
+                },
+            }
+        }
+    )
+
+    def __post_init__(self) -> None:
+        """Validate model and fill in defaults for channels/blocks_per_stage."""
+        valid_models = self.extras.get("model", {})
+        if self.model not in valid_models:
+            raise ValueError(
+                f"model={self.model!r} is not supported. "
+                f"Valid values: {sorted(valid_models.keys())}"
+            )
+        defaults = valid_models[self.model]
+        if self.channels is None:
+            self.channels = list(defaults["channels"])
+        if self.blocks_per_stage is None:
+            self.blocks_per_stage = list(defaults["blocks_per_stage"])
 
 
 @dataclass
@@ -38,8 +68,50 @@ class TrainConfig:
     metric_type: str = "accuracy"
     logger_type: str = "tensorboard"
     use_augmentation: bool = True
-    scheduler_type: str = "cosine_warm_restarts"
+    scheduler: str = "cosine_warm_restarts"
+    precision: str = "32"
+    deterministic: bool = True
     matmul_precision: str = "high"
+    scheduler_params: Optional[Dict[str, Any]] = None
+    extras: Dict[str, Dict] = field(
+        default_factory=lambda: {
+            "scheduler": {
+                "cosine_warm_restarts": {"t0": 10, "t_mult": 2, "eta_min": 1e-5},
+                "cosine": {"t0": 10, "t_mult": 2, "eta_min": 1e-5},
+                "cosineannealingwarmrestarts": {"t0": 10, "t_mult": 2, "eta_min": 1e-5},
+                "plateau": {"factor": 0.5, "patience": 3},
+                "reduce_on_plateau": {"factor": 0.5, "patience": 3},
+                "reducelronplateau": {"factor": 0.5, "patience": 3},
+            }
+        }
+    )
+
+    def __post_init__(self) -> None:
+        """Validate scheduler and fill in defaults for scheduler_params."""
+        stype = self.scheduler.strip().lower()
+        valid_schedulers = self.extras.get("scheduler", {})
+        precision = str(self.precision).strip().lower()
+        valid_precisions = {"32", "16-mixed", "bf16-mixed"}
+
+        # Allow "none", "off", "disabled" as special values
+        if stype not in {*valid_schedulers, "none", "off", "disabled"}:
+            raise ValueError(
+                f"scheduler={self.scheduler!r} is not supported. "
+                f"Valid values: {sorted(valid_schedulers.keys())} or 'none'/'off'/'disabled'"
+            )
+        if precision not in valid_precisions:
+            raise ValueError(
+                f"precision={self.precision!r} is not supported. "
+                f"Valid values: {sorted(valid_precisions)}"
+            )
+
+        self.precision = precision
+        defaults = dict(valid_schedulers.get(stype, {}))
+        if self.scheduler_params is None:
+            self.scheduler_params = defaults
+        else:
+            # Merge user-supplied params with defaults (user params take precedence)
+            self.scheduler_params = {**defaults, **self.scheduler_params}
 
 
 @dataclass

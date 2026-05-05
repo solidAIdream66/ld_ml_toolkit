@@ -1,12 +1,9 @@
 import torch.nn as nn
-from .configs import ModelConfig
+from ..configs import ModelConfig
 
 
 
-
-
-
-class ConvClassifier(nn.Module):
+class MyVGGNet(nn.Module):
     """VGG-style CNN classifier with a modern pooling head.
 
     With channels=(64, 128, 256, 512, 512) and blocks_per_stage=2 this
@@ -18,9 +15,11 @@ class ConvClassifier(nn.Module):
         super().__init__()
         layers = []
         in_channels = 3
+        channels = config.channels
+        blocks_per_stage = config.blocks_per_stage
 
-        for out_channels in config.channels:
-            for _ in range(config.blocks_per_stage):
+        for out_channels, num_blocks in zip(channels, blocks_per_stage):
+            for _ in range(num_blocks):
                 layers.append(nn.Conv2d(
                     in_channels, out_channels,
                     kernel_size=3, padding=1,
@@ -36,7 +35,7 @@ class ConvClassifier(nn.Module):
         self.head = nn.Sequential(
             nn.AdaptiveAvgPool2d((1, 1)),
             nn.Flatten(),
-            nn.Linear(config.channels[-1], 512),
+            nn.Linear(channels[-1], 512),
             nn.ReLU(inplace=True),
             nn.Dropout(config.dropout),
             nn.Linear(512, config.num_classes),

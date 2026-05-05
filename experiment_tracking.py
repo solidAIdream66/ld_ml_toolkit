@@ -154,7 +154,17 @@ def _normalize_extras(extras: Dict[str, Any]) -> Dict[str, Any]:
 
 def _normalize_train_config_payload(payload: Dict[str, Any]) -> None:
     train_section = dict(payload.get("train", {}))
+    model_section = dict(payload.get("model", {}))
     extras_section = dict(payload.get("extras", {}))
+
+    # Migrate renamed fields from old configs so they round-trip correctly.
+    if "scheduler_type" in train_section and "scheduler" not in train_section:
+        train_section["scheduler"] = train_section.pop("scheduler_type")
+    if "model_name" in model_section and "model" not in model_section:
+        model_section["model"] = model_section.pop("model_name")
+    # Migrate old train.extras.scheduler dict → scheduler_params field.
+    if "scheduler" in extras_section and "scheduler_params" not in train_section:
+        train_section["scheduler_params"] = extras_section.pop("scheduler")
 
     single_key_mappings = {
         ("optimizer", "name"): "optimizer_type",
@@ -187,6 +197,7 @@ def _normalize_train_config_payload(payload: Dict[str, Any]) -> None:
                 extras_section.pop(section_name, None)
 
     payload["train"] = train_section
+    payload["model"] = model_section
     payload["extras"] = extras_section
 
 
