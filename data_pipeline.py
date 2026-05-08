@@ -60,7 +60,7 @@ def image_augmented_transforms(
     ])
 
 
-def compute_mean_std(
+def _compute_mean_std(
     loader: DataLoader,
 ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:   
 
@@ -76,6 +76,30 @@ def compute_mean_std(
     std = torch.sqrt(var)
 
     return tuple(mean.tolist()), tuple(std.tolist())
+
+
+def compute_mean_std(
+    data_config: DataConfig,
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    root = Path(data_config.data_root)
+    preprocess = image_preprocess_transforms(tuple(data_config.image_size))
+
+    train_split = str(data_config.extras.get("train_split", data_config.train_split))
+    try:
+        train_dir = _resolve_split_dir(root, train_split)
+        train_dataset = datasets.ImageFolder(root=str(train_dir), transform=preprocess)
+    except FileNotFoundError:
+        train_dataset = CSVFolder(data_root=root, transform=preprocess)
+
+    loader = DataLoader(
+        train_dataset,
+        batch_size=data_config.batch_size,
+        shuffle=False,
+        num_workers=data_config.num_workers,
+        pin_memory=False,
+        persistent_workers=False,
+    )
+    return _compute_mean_std(loader)
 
 
 def build_train_valid_loaders(
@@ -103,7 +127,7 @@ def build_train_valid_loaders(
             train_root.name.lower(),
             valid_root.name.lower(),
         )
-    except:
+    except FileNotFoundError:
         dataset = CSVFolder(data_root=root)
         train_valid_split = config.extras.get(
             "train_valid_split", config.train_valid_split
@@ -147,7 +171,7 @@ def build_train_valid_loaders(
                     # worker-process shutdown on Windows before the scan finishes.
                     persistent_workers=False,
                 )
-            mean, std = compute_mean_std(loader)
+            mean, std = _compute_mean_std(loader)
             _DATASET_STATS_CACHE[stats_cache_key] = (mean, std)
             print(f"Computed mean={mean}, std={std}")
 

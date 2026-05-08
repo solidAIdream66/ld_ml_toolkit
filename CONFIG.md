@@ -73,40 +73,173 @@ When no split directories are found, `CSVFolder` is used and the dataset is rand
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `model` | str | `"vgg_style"` | Architecture. Must be a key in `extras["model"]`. Supported: `"vgg_style"`, `"res_style"`. |
+| `model` | Dict[str, Any] | `{ "name": "vgg_style" }` | Required model spec. Must include `name` plus optional kwargs, for example `{ "name": "resnet18", "pretrained": true }` or `{ "name": "res_style", "channels": [...], "blocks_per_stage": [...] }`. |
 | `num_classes` | int | `3` | Number of output classes. |
 | `use_batch_norm` | bool | `True` | Insert BatchNorm layers after each convolution. |
 | `dropout` | float | `0.0` | Dropout probability applied inside residual blocks (res_style) or the classifier head (vgg_style). |
-| `channels` | List[int] \| None | `None` | Output channels per stage. When `None`, filled from the model's entry in `extras["model"]`. |
-| `blocks_per_stage` | List[int] \| None | `None` | Conv/residual blocks per stage (always a list). When `None`, filled from the model's entry in `extras["model"]`. |
-| `extras` | dict | lookup table | Registry of valid model names and their default params. See below. |
+| `channels` | List[int] \| None | `None` | Output channels per stage. If omitted, can be provided under `model.<name>.channels` for custom models. |
+| `blocks_per_stage` | List[int] \| None | `None` | Conv/residual blocks per stage. If omitted, can be provided under `model.<name>.blocks_per_stage` for custom models. |
+| `extras` | dict | `{}` | Optional custom metadata. |
 
-### `model` lookup table (`extras["model"]`)
+### `model.model.name` supported values
 
-Each entry maps a model name to its default `channels` and `blocks_per_stage`.
+Custom toolkit models:
 
-```python
-"extras": {
-    "model": {
-        "vgg_style": {
-            "channels": [64, 128, 256, 512, 512],
-            "blocks_per_stage": [2, 2, 2, 2, 2],
-        },
-        "res_style": {
-            "channels": [64, 128, 256, 512],
-            "blocks_per_stage": [3, 4, 6, 3],
-        },
-    }
-}
-```
+- `res_style`
+- `vgg_style`
 
-`channels` and `blocks_per_stage` can be set directly alongside `model`; they override the lookup defaults:
+Torchvision models:
+
+`model.model.name` also accepts any value from `torchvision.models.list_models()` in the active environment.
+
+Current list (torchvision 0.20.1):
+
+- `alexnet`
+- `convnext_base`
+- `convnext_large`
+- `convnext_small`
+- `convnext_tiny`
+- `deeplabv3_mobilenet_v3_large`
+- `deeplabv3_resnet101`
+- `deeplabv3_resnet50`
+- `densenet121`
+- `densenet161`
+- `densenet169`
+- `densenet201`
+- `efficientnet_b0`
+- `efficientnet_b1`
+- `efficientnet_b2`
+- `efficientnet_b3`
+- `efficientnet_b4`
+- `efficientnet_b5`
+- `efficientnet_b6`
+- `efficientnet_b7`
+- `efficientnet_v2_l`
+- `efficientnet_v2_m`
+- `efficientnet_v2_s`
+- `fasterrcnn_mobilenet_v3_large_320_fpn`
+- `fasterrcnn_mobilenet_v3_large_fpn`
+- `fasterrcnn_resnet50_fpn`
+- `fasterrcnn_resnet50_fpn_v2`
+- `fcn_resnet101`
+- `fcn_resnet50`
+- `fcos_resnet50_fpn`
+- `googlenet`
+- `inception_v3`
+- `keypointrcnn_resnet50_fpn`
+- `lraspp_mobilenet_v3_large`
+- `maskrcnn_resnet50_fpn`
+- `maskrcnn_resnet50_fpn_v2`
+- `maxvit_t`
+- `mc3_18`
+- `mnasnet0_5`
+- `mnasnet0_75`
+- `mnasnet1_0`
+- `mnasnet1_3`
+- `mobilenet_v2`
+- `mobilenet_v3_large`
+- `mobilenet_v3_small`
+- `mvit_v1_b`
+- `mvit_v2_s`
+- `quantized_googlenet`
+- `quantized_inception_v3`
+- `quantized_mobilenet_v2`
+- `quantized_mobilenet_v3_large`
+- `quantized_resnet18`
+- `quantized_resnet50`
+- `quantized_resnext101_32x8d`
+- `quantized_resnext101_64x4d`
+- `quantized_shufflenet_v2_x0_5`
+- `quantized_shufflenet_v2_x1_0`
+- `quantized_shufflenet_v2_x1_5`
+- `quantized_shufflenet_v2_x2_0`
+- `r2plus1d_18`
+- `r3d_18`
+- `raft_large`
+- `raft_small`
+- `regnet_x_16gf`
+- `regnet_x_1_6gf`
+- `regnet_x_32gf`
+- `regnet_x_3_2gf`
+- `regnet_x_400mf`
+- `regnet_x_800mf`
+- `regnet_x_8gf`
+- `regnet_y_128gf`
+- `regnet_y_16gf`
+- `regnet_y_1_6gf`
+- `regnet_y_32gf`
+- `regnet_y_3_2gf`
+- `regnet_y_400mf`
+- `regnet_y_800mf`
+- `regnet_y_8gf`
+- `resnet101`
+- `resnet152`
+- `resnet18`
+- `resnet34`
+- `resnet50`
+- `resnext101_32x8d`
+- `resnext101_64x4d`
+- `resnext50_32x4d`
+- `retinanet_resnet50_fpn`
+- `retinanet_resnet50_fpn_v2`
+- `s3d`
+- `shufflenet_v2_x0_5`
+- `shufflenet_v2_x1_0`
+- `shufflenet_v2_x1_5`
+- `shufflenet_v2_x2_0`
+- `squeezenet1_0`
+- `squeezenet1_1`
+- `ssd300_vgg16`
+- `ssdlite320_mobilenet_v3_large`
+- `swin3d_b`
+- `swin3d_s`
+- `swin3d_t`
+- `swin_b`
+- `swin_s`
+- `swin_t`
+- `swin_v2_b`
+- `swin_v2_s`
+- `swin_v2_t`
+- `vgg11`
+- `vgg11_bn`
+- `vgg13`
+- `vgg13_bn`
+- `vgg16`
+- `vgg16_bn`
+- `vgg19`
+- `vgg19_bn`
+- `vit_b_16`
+- `vit_b_32`
+- `vit_h_14`
+- `vit_l_16`
+- `vit_l_32`
+- `wide_resnet101_2`
+- `wide_resnet50_2`
+
+Note: this toolkit's classifier-head replacement expects classification-style models with an `fc` or `classifier` linear head. Detection, segmentation, flow, and keypoint models from torchvision are listed for completeness but may not be directly usable with `ConvClassifier`.
+
+### `model` examples
 
 ```python
 "model": {
-    "model": "res_style",
-    "channels": [32, 64, 128, 256],       # optional override
-    "blocks_per_stage": [2, 2, 3, 2],     # optional override
+    "model": {
+        "name": "res_style",
+        "channels": [64, 128, 256, 512],
+        "blocks_per_stage": [2, 2, 2, 2],
+    },
+    "num_classes": 13,
+    "use_batch_norm": True,
+    "dropout": 0.1,
+}
+```
+
+```python
+"model": {
+    "model": {
+        "name": "resnet18",
+        "pretrained": True,
+    },
+    "num_classes": 13,
 }
 ```
 
@@ -127,23 +260,35 @@ Each entry maps a model name to its default `channels` and `blocks_per_stage`.
 | `metric_type` | str | `"accuracy"` | Evaluation metric. Currently only `"accuracy"` is supported. |
 | `logger_type` | str | `"tensorboard"` | Experiment logger. Currently only `"tensorboard"` is supported. |
 | `use_augmentation` | bool | `True` | Apply random augmentation to the training set (rotation, crop, flip, color jitter). |
-| `scheduler` | str | `"cosine_warm_restarts"` | LR scheduler. Must be a key in `extras["scheduler"]` or `"none"`/`"off"`/`"disabled"`. Supported: `"cosine_warm_restarts"`, `"plateau"`, and their aliases. |
+| `scheduler` | Dict[str, Any] | `{ "name": "cosine_warm_restarts", "t0": 10, "t_mult": 2, "eta_min": 1e-5 }` | LR scheduler config. Use `scheduler.name` to pick scheduler type and set parameters in the same dict. |
 | `precision` | str | `"32"` | Trainer precision. Supported: `"32"`, `"16-mixed"`, `"bf16-mixed"`. Mixed precision is usually the best speed default on CUDA. |
 | `deterministic` | bool | `True` | When `True`, prefer reproducible kernels. Set `False` during sweeps to enable faster cuDNN benchmarking on fixed-size image training. |
-| `scheduler_params` | dict \| None | `None` | Active scheduler parameters. When `None`, filled from `extras["scheduler"][scheduler]`. Partial dicts are merged with defaults (user values win). |
 | `matmul_precision` | str | `"high"` | PyTorch matmul precision: `"highest"`, `"high"`, or `"medium"`. |
 | `extras` | dict | lookup table | Registry of valid scheduler names and their default params. See below. |
 
-### `scheduler` lookup table and `scheduler_params`
+### `train.scheduler.name` supported values
 
-`extras["scheduler"]` is the registry. `scheduler_params` holds the resolved active params after `__post_init__` merges.
+- `cosine_warm_restarts`
+- `cosine` (alias of cosine_warm_restarts)
+- `cosineannealingwarmrestarts` (alias of cosine_warm_restarts)
+- `plateau`
+- `reduce_on_plateau` (alias of plateau)
+- `reducelronplateau` (alias of plateau)
+- `none`
+- `off` (alias of none)
+- `disabled` (alias of none)
+
+### `scheduler` lookup table
+
+`extras["scheduler"]` is the registry. The active values are merged directly into `train.scheduler`.
 
 #### `"cosine_warm_restarts"` (aliases: `"cosine"`, `"cosineannealingwarmrestarts"`)
 
-Default `scheduler_params`:
+Default `scheduler`:
 
 ```python
-"scheduler_params": {
+"scheduler": {
+    "name":   "cosine_warm_restarts",
     "t0":      10,    # (int)   epochs in the first restart cycle
     "t_mult":   2,    # (int)   cycle length multiplier after each restart
     "eta_min": 1e-5,  # (float) minimum learning rate
@@ -152,10 +297,11 @@ Default `scheduler_params`:
 
 #### `"plateau"` (aliases: `"reduce_on_plateau"`, `"reducelronplateau"`)
 
-Default `scheduler_params`:
+Default `scheduler`:
 
 ```python
-"scheduler_params": {
+"scheduler": {
+    "name":    "plateau",
     "factor":   0.5,  # (float) multiplicative factor on plateau
     "patience": 3,    # (int)   epochs with no improvement before reducing LR
 }
@@ -163,14 +309,16 @@ Default `scheduler_params`:
 
 #### `"none"` (aliases: `"off"`, `"disabled"`)
 
-Disables the scheduler. `scheduler_params` will be `{}`.
+Disables the scheduler.
 
 To override specific params without setting all of them:
 
 ```python
 "train": {
-    "scheduler": "cosine_warm_restarts",
-    "scheduler_params": {"t0": 20},   # only t0 overridden; t_mult and eta_min use defaults
+    "scheduler": {
+        "name": "cosine_warm_restarts",
+        "t0": 20,   # only t0 overridden; t_mult and eta_min use defaults
+    },
 }
 ```
 

@@ -20,39 +20,32 @@ class DataConfig:
 @dataclass
 class ModelConfig:
     num_classes: int = 3
-    model: str = "vgg_style"
+    model: Dict[str, Any] = field(default_factory=lambda: {"name": "vgg_style"})
     use_batch_norm: bool = True
     dropout: float = 0
     channels: Optional[List[int]] = None
     blocks_per_stage: Optional[List[int]] = None
-    extras: Dict[str, Dict] = field(
-        default_factory=lambda: {
-            "model": {
-                "vgg_style": {
-                    "channels": [64, 128, 256, 512, 512],
-                    "blocks_per_stage": [2, 2, 2, 2, 2],
-                },
-                "res_style": {
-                    "channels": [64, 128, 256, 512],
-                    "blocks_per_stage": [3, 4, 6, 3],
-                },
-            }
-        }
-    )
+    extras: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Validate model and fill in defaults for channels/blocks_per_stage."""
-        valid_models = self.extras.get("model", {})
-        if self.model not in valid_models:
+        """Validate model spec shape and lift common custom-model kwargs."""
+        if not isinstance(self.model, dict) or not self.model:
             raise ValueError(
-                f"model={self.model!r} is not supported. "
-                f"Valid values: {sorted(valid_models.keys())}"
+                "model must be a non-empty dict like {'name': 'resnet18', 'pretrained': True}"
             )
-        defaults = valid_models[self.model]
-        if self.channels is None:
-            self.channels = list(defaults["channels"])
-        if self.blocks_per_stage is None:
-            self.blocks_per_stage = list(defaults["blocks_per_stage"])
+
+        raw_name = self.model.get("name")
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            raise ValueError("model.name must be a non-empty string")
+
+        if self.channels is None and "channels" in self.model:
+            self.channels = list(self.model["channels"])
+        if self.blocks_per_stage is None and "blocks_per_stage" in self.model:
+            self.blocks_per_stage = list(self.model["blocks_per_stage"])
+
+        normalized = dict(self.model)
+        normalized["name"] = raw_name.strip().lower()
+        self.model = normalized
 
 
 @dataclass
@@ -68,11 +61,17 @@ class TrainConfig:
     metric_type: str = "accuracy"
     logger_type: str = "tensorboard"
     use_augmentation: bool = True
-    scheduler: str = "cosine_warm_restarts"
+    scheduler: Dict[str, Any] = field(
+        default_factory=lambda: {
+            "name": "cosine_warm_restarts",
+            "t0": 10,
+            "t_mult": 2,
+            "eta_min": 1e-5,
+        }
+    )
     precision: str = "32"
     deterministic: bool = True
     matmul_precision: str = "high"
-    scheduler_params: Optional[Dict[str, Any]] = None
     extras: Dict[str, Dict] = field(
         default_factory=lambda: {
             "scheduler": {
@@ -87,8 +86,14 @@ class TrainConfig:
     )
 
     def __post_init__(self) -> None:
-        """Validate scheduler and fill in defaults for scheduler_params."""
-        stype = self.scheduler.strip().lower()
+        """Validate scheduler config and normalize defaults."""
+        if not isinstance(self.scheduler, dict):
+            raise ValueError(
+                "scheduler must be a dict like {'name': 'cosine_warm_restarts', 't0': 10, 't_mult': 2, 'eta_min': 1e-5}"
+            )
+
+        scheduler_cfg = dict(self.scheduler)
+        stype = str(scheduler_cfg.get("name", "")).strip().lower()
         valid_schedulers = self.extras.get("scheduler", {})
         precision = str(self.precision).strip().lower()
         valid_precisions = {"32", "16-mixed", "bf16-mixed"}
@@ -96,7 +101,7 @@ class TrainConfig:
         # Allow "none", "off", "disabled" as special values
         if stype not in {*valid_schedulers, "none", "off", "disabled"}:
             raise ValueError(
-                f"scheduler={self.scheduler!r} is not supported. "
+                f"scheduler.name={scheduler_cfg.get('name')!r} is not supported. "
                 f"Valid values: {sorted(valid_schedulers.keys())} or 'none'/'off'/'disabled'"
             )
         if precision not in valid_precisions:
@@ -107,11 +112,7 @@ class TrainConfig:
 
         self.precision = precision
         defaults = dict(valid_schedulers.get(stype, {}))
-        if self.scheduler_params is None:
-            self.scheduler_params = defaults
-        else:
-            # Merge user-supplied params with defaults (user params take precedence)
-            self.scheduler_params = {**defaults, **self.scheduler_params}
+        self.scheduler = {"name": stype, **defaults, **scheduler_cfg}
 
 
 @dataclass

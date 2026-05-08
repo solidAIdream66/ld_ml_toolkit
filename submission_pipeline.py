@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Sequence, Tuple, Union
+from typing import Dict, Sequence, Tuple, Union
 
 import pandas as pd
 from PIL import Image
@@ -22,8 +22,23 @@ class TestImageDataset(Dataset):
 
     def __getitem__(self, index: int):
         image_id = self.image_ids[index]
-        image = Image.open(self.image_root / image_id).convert("RGB")
+        image = Image.open(self.image_root / f"{image_id}.jpg").convert("RGB")
         return self.transform(image), image_id
+
+
+def _resolve_image_root(root: Path) -> Path:
+    csv_style_root = root / "images" / "images"
+    if csv_style_root.exists():
+        return csv_style_root
+
+    return root
+
+
+def _build_idx_to_class(root: Path) -> Dict[int, str]:
+    train_csv = root / "train.csv"
+    train_df = pd.read_csv(train_csv)
+    classes = sorted(train_df["class"].astype(str).unique().tolist())
+    return {idx: cls_name for idx, cls_name in enumerate(classes)}
 
 
 def generate_submission(
@@ -40,17 +55,22 @@ def generate_submission(
     test_csv_path = Path(test_csv_path)
     output_csv_path = Path(output_csv_path)
 
-    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+    state = torch.load(checkpoint_path, map_location="cpu")
+    if isinstance(state, dict) and "state_dict" in state:
+        state = state["state_dict"]
+    model.load_state_dict(state)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.eval()
 
     root = Path(data_config.data_root)
-    test_root = root / data_config.test_split
+    test_root = _resolve_image_root(root)
+    idx_to_class = _build_idx_to_class(root)
 
     test_df = pd.read_csv(test_csv_path)
+    test_id_col = "id" if "id" in test_df.columns else "ID"
     transform = image_common_transforms(data_config.image_size, mean, std)
-    dataset = TestImageDataset(test_df["ID"].tolist(), test_root, transform)
+    dataset = TestImageDataset(test_df[test_id_col].tolist(), test_root, transform)
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -63,10 +83,12 @@ def generate_submission(
         for images, _ in loader:
             images = images.to(device)
             preds = model(images).argmax(dim=1).cpu().tolist()
-            predictions.extend(loader.dataset.class_to_idx[pred] for pred in preds)
+            predictions.extend(idx_to_class[pred] for pred in preds)
 
-    submission_df = test_df.copy()
-    submission_df["CLASS"] = predictions
+    submission_df = pd.DataFrame({
+        "id": test_df[test_id_col].astype(str),
+        "class": predictions,
+    })
     output_csv_path.parent.mkdir(parents=True, exist_ok=True)
     submission_df.to_csv(output_csv_path, index=False)
     return output_csv_path

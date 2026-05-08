@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pytorch_lightning as pl
 import torch
+from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch import nn
@@ -43,6 +44,7 @@ class Experiment:
         self.logger = self._build_logger()
         self.history_callback = HistoryCallback()
         self.checkpoint_callback = self._build_checkpoint_callback()
+        self.early_stopping_callback = self._build_early_stopping_callback()
         self.lightning_module = self._build_lightning_module()
 
     def _extras_section(self, section_name: str, owner: str = "train") -> Dict:
@@ -137,12 +139,10 @@ class Experiment:
         )
 
     def _build_scheduler_config(self):
-        raw = self.config.train.scheduler or "none"
-        scheduler_type = raw.strip().lower()
+        scheduler_cfg = dict(self.config.train.scheduler or {})
+        scheduler_type = str(scheduler_cfg.get("name", "none")).strip().lower()
         if scheduler_type in {"none", "off", "disabled"}:
             return None
-
-        scheduler_cfg = self.config.train.scheduler_params or {}
 
         # Extend here to support more scheduler types.
         # Each branch must return a Lightning lr_scheduler config dict
@@ -176,7 +176,7 @@ class Experiment:
                 "interval": "epoch",
             }
 
-        raise ValueError(f"Unsupported scheduler_type: {raw!r}")
+        raise ValueError(f"Unsupported scheduler.name: {scheduler_type!r}")
 
     def _build_logger(self):
         logger_name = str(self.config.train.logger_type).strip().lower()
@@ -199,6 +199,25 @@ class Experiment:
             monitor="valid/loss",
             mode="min",
             save_top_k=1,
+        )
+
+    def _build_early_stopping_callback(self) -> Optional[EarlyStopping]:
+        scheduler_cfg = dict(self.config.train.scheduler or {})
+        scheduler_type = str(scheduler_cfg.get("name", "none")).strip().lower()
+        plateau_aliases = {"plateau", "reduce_on_plateau", "reducelronplateau"}
+        if scheduler_type not in plateau_aliases:
+            return None
+
+        early_stop_cfg = dict(scheduler_cfg.get("early_stop", {}))
+        if not bool(early_stop_cfg.get("enabled", False)):
+            return None
+
+        return EarlyStopping(
+            monitor=str(early_stop_cfg.get("monitor", "valid/loss")),
+            mode=str(early_stop_cfg.get("mode", "min")),
+            patience=int(early_stop_cfg.get("patience", 5)),
+            min_delta=float(early_stop_cfg.get("min_delta", 0.0)),
+            verbose=bool(early_stop_cfg.get("verbose", True)),
         )
 
     def _build_lightning_module(self) -> ClassifierModule:
@@ -264,7 +283,11 @@ class Experiment:
             devices=devices,
             precision=precision,
             logger=self.logger,
-            callbacks=[self.checkpoint_callback, self.history_callback],
+            callbacks=[
+                self.checkpoint_callback,
+                self.history_callback,
+                *([self.early_stopping_callback] if self.early_stopping_callback else []),
+            ],
             deterministic=deterministic,
             enable_checkpointing=True,
             log_every_n_steps=20,
