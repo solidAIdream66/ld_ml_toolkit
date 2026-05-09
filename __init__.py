@@ -1,4 +1,4 @@
-from .configs import DataConfig, ExperimentConfig, ModelConfig, PathsConfig, TrainConfig
+from .configs import DataConfig, ExperimentConfig, ModelConfig, PathsConfig, TrainConfig, get_config, upload_config
 from .data_pipeline import (
     build_train_valid_loaders,
     compute_mean_std,
@@ -29,6 +29,8 @@ __all__ = [
     "ModelConfig",
     "PathsConfig",
     "TrainConfig",
+    "get_config",
+    "upload_config",
     "build_train_valid_loaders",
     "compute_mean_std",
     "ConvClassifier",

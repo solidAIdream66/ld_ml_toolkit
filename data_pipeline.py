@@ -12,6 +12,13 @@ from .configs import DataConfig
 _DATASET_STATS_CACHE: dict[tuple, Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = {}
 
 
+def _dataset_cfg(data_config: DataConfig) -> dict:
+    cfg = dict(data_config.dataset or {})
+    cfg.setdefault("type", "CSVFolder")
+    cfg.setdefault("root", "dataset")
+    return cfg
+
+
 def _resolve_split_dir(root: Path, split_name: str) -> Path:
     direct = root / split_name
     if direct.exists():
@@ -81,10 +88,11 @@ def _compute_mean_std(
 def compute_mean_std(
     data_config: DataConfig,
 ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
-    root = Path(data_config.data_root)
+    dataset_cfg = _dataset_cfg(data_config)
+    root = Path(str(dataset_cfg["root"]))
     preprocess = image_preprocess_transforms(tuple(data_config.image_size))
 
-    train_split = str(data_config.extras.get("train_split", data_config.train_split))
+    train_split = str(dataset_cfg.get("train_split", "Train"))
     try:
         train_dir = _resolve_split_dir(root, train_split)
         train_dataset = datasets.ImageFolder(root=str(train_dir), transform=preprocess)
@@ -108,11 +116,14 @@ def build_train_valid_loaders(
     mean: Optional[Tuple[float, float, float]] = None,
     std: Optional[Tuple[float, float, float]] = None,
 ):
-    root = Path(config.data_root)    
+    dataset_cfg = _dataset_cfg(config)
+    root = Path(str(dataset_cfg["root"]))
+    dataset_type = str(dataset_cfg.get("type", "CSVFolder")).strip().lower()
 
-    try:
-        train_root = _resolve_split_dir(root, config.train_split)
-        valid_root = _resolve_split_dir(root, config.valid_split)
+    
+    if dataset_type == "imagefolder":
+        train_root = _resolve_split_dir(root, str(dataset_cfg.get("train_split", "Train")))
+        valid_root = _resolve_split_dir(root, str(dataset_cfg.get("valid_split", "Valid")))
         train_dataset = datasets.ImageFolder(
                 root=str(train_root),
             )
@@ -127,11 +138,9 @@ def build_train_valid_loaders(
             train_root.name.lower(),
             valid_root.name.lower(),
         )
-    except FileNotFoundError:
+    elif dataset_type == "csvfolder":
         dataset = CSVFolder(data_root=root)
-        train_valid_split = config.extras.get(
-            "train_valid_split", config.train_valid_split
-        )
+        train_valid_split = float(dataset_cfg.get("train_valid_split", 0.8))
         train_size = int(train_valid_split * len(dataset))
         valid_size = len(dataset) - train_size
         # Split into two separate base datasets so transforms don't share state
@@ -148,6 +157,8 @@ def build_train_valid_loaders(
             tuple(config.image_size),
             float(train_valid_split),
         )
+    else:
+        raise ValueError(f"Unsupported dataset type: {dataset_type}")
 
     if mean is None or std is None:
         cached_stats = _DATASET_STATS_CACHE.get(stats_cache_key)
@@ -208,7 +219,7 @@ def build_train_valid_loaders(
         persistent_workers=config.num_workers > 0,
     )
 
-    return train_loader, valid_loader
+    return train_loader, valid_loader, mean, std
 
 
 

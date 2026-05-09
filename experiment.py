@@ -30,7 +30,7 @@ class Experiment:
     def __init__(self, experiment_config: ExperimentConfig):
         self.config = experiment_config
 
-        self.train_loader, self.valid_loader = self._build_dataloaders()
+        self.train_loader, self.valid_loader, mean, std = self._build_dataloaders()
         self.data_module = DataModule(
             train_loader=self.train_loader,
             valid_loader=self.valid_loader,
@@ -229,6 +229,7 @@ class Experiment:
             train_metric=self.train_metric,
             valid_metric=self.valid_metric,
             lr_scheduler_config=self.lr_scheduler_config,
+            image_size=tuple(self.config.data.image_size),
         )
 
     @staticmethod

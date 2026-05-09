@@ -11,7 +11,6 @@ from .experiment_tracking import (
 def run_experiments(
     experiment_settings_list: List[Dict[str, Any]],
     base_experiment_settings: Optional[Dict[str, Any]] = None,
-    experiments_xlsx: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
     all_results: List[Dict[str, Any]] = []
     base_settings = base_experiment_settings or {}
@@ -31,7 +30,7 @@ def run_experiments(
         
         result = experiment.run(
             version_name=current_version_name,
-            experiments_xlsx=experiments_xlsx,
+            experiments_xlsx=experiment_config.paths.experiments_file,
             exp_name=exp_name,
         )
         all_results.append(result)

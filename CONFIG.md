@@ -8,20 +8,26 @@ Settings are split into a `BASE_EXPERIMENT_SETTINGS` dict (stable defaults) and 
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `data_root` | str | `"dataset"` | Path to the dataset root. Supports two folder structures (see below). |
+| `dataset` | dict | `{ "type": "CSVFolder", "root": "dataset", "train_valid_split": 0.8 }` | Dataset settings grouped in one nested block (see structure-specific keys below). |
 | `image_size` | [int, int] | `[224, 224]` | Resize target `[height, width]`. |
 | `batch_size` | int | `32` | Mini-batch size for both train and validation loaders. |
 | `num_workers` | int | `2` | DataLoader worker processes. Set to `0` on Windows if workers crash. For GPU training, increase this to keep augmentation and image decoding from starving the device. |
 | `pin_memory` | bool | `True` | Pin memory for faster GPU transfer. |
-| `test_split` | str | `"Test"` | Sub-folder name used for the test set (case-insensitive resolution). |
 | `extras` | dict | `{}` | Extended options — see below. |
+
+### `data.dataset` common keys
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `type` | str | `"CSVFolder"` | Dataset loader mode. Use `"CSVFolder"` or `"ImageFolder"`. |
+| `root` | str | `"dataset"` | Path to dataset root directory. |
 
 ### Supported dataset structures
 
 **Structure A — ImageFolder** (two explicit split directories)
 
 ```
-data_root/
+dataset.root/
     Train/          # or any name matching train_split
         class_a/
         class_b/
@@ -32,23 +38,26 @@ data_root/
         ...
 ```
 
-Set inside `data.extras`:
+Set inside `data.dataset`:
 
 ```python
-"extras": {
+"dataset": {
+    "type": "ImageFolder",
+    "root": "dataset",
     "train_split": "Train",   # sub-folder name for training images
     "valid_split": "Valid",   # sub-folder name for validation images
+    "test_split": "Test",     # sub-folder name for test images
 }
 ```
 
-When both `train_split` and `valid_split` directories are found, `torchvision.datasets.ImageFolder` is used and `train_valid_split` is ignored.
+When `type` is `ImageFolder`, train/valid data is loaded from the configured split folders under `root`.
 
 ---
 
 **Structure B — CSVFolder** (single image pool + CSV manifest)
 
 ```
-data_root/
+dataset.root/
     images/
         images/
             image_1.jpg
@@ -57,15 +66,17 @@ data_root/
     test.csv
 ```
 
-Set inside `data.extras`:
+Set inside `data.dataset`:
 
 ```python
-"extras": {
+"dataset": {
+    "type": "CSVFolder",
+    "root": "dataset",
     "train_valid_split": 0.8,   # fraction of train.csv rows used for training
 }
 ```
 
-When no split directories are found, `CSVFolder` is used and the dataset is randomly split according to `train_valid_split`. The random split uses a fixed seed (42) for reproducibility.
+When `type` is `CSVFolder`, `CSVFolder` is used and the dataset is randomly split according to `train_valid_split`. The random split uses a fixed seed (42) for reproducibility.
 
 ---
 

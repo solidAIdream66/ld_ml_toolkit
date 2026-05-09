@@ -1,0 +1,117 @@
+{
+  "data": {
+    "dataset": {
+      "type": "ImageFolder",
+      "root": "F:/ML_Database/cat-dog-panda",
+      "train_valid_split": 0.8,
+      "test_split": "Test",
+      "train_split": "Train",
+      "valid_split": "Valid"
+    },
+    "image_size": [
+      224,
+      224
+    ],
+    "batch_size": 32,
+    "num_workers": 4,
+    "pin_memory": true,
+    "extras": {}
+  },
+  "model": {
+    "num_classes": 3,
+    "model": {
+      "name": "vgg_style",
+      "blocks_per_stage": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "channels": [
+        64,
+        128,
+        256,
+        512,
+        512
+      ]
+    },
+    "use_batch_norm": true,
+    "dropout": 0.0,
+    "channels": [
+      64,
+      128,
+      256,
+      512,
+      512
+    ],
+    "blocks_per_stage": [
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "extras": {}
+  },
+  "train": {
+    "epochs": 300,
+    "learning_rate": 0.001,
+    "weight_decay": 5e-05,
+    "label_smoothing": 0.05,
+    "device": "cuda",
+    "seed": 84,
+    "optimizer_type": "adamw",
+    "loss_type": "cross_entropy",
+    "metric_type": "accuracy",
+    "logger_type": "tensorboard",
+    "use_augmentation": true,
+    "scheduler": {
+      "name": "cosine_warm_restarts",
+      "t0": 10,
+      "t_mult": 2,
+      "eta_min": 1e-05
+    },
+    "precision": "bf16-mixed",
+    "deterministic": false,
+    "matmul_precision": "high",
+    "extras": {
+      "scheduler": {
+        "cosine_warm_restarts": {
+          "t0": 10,
+          "t_mult": 2,
+          "eta_min": 1e-05
+        },
+        "cosine": {
+          "t0": 10,
+          "t_mult": 2,
+          "eta_min": 1e-05
+        },
+        "cosineannealingwarmrestarts": {
+          "t0": 10,
+          "t_mult": 2,
+          "eta_min": 1e-05
+        },
+        "plateau": {
+          "factor": 0.5,
+          "patience": 3
+        },
+        "reduce_on_plateau": {
+          "factor": 0.5,
+          "patience": 3
+        },
+        "reducelronplateau": {
+          "factor": 0.5,
+          "patience": 3
+        }
+      }
+    }
+  },
+  "paths": {
+    "checkpoint_dir": "Logs_Checkpoints\\Model_checkpoints",
+    "log_dir": "Logs_Checkpoints\\Model_logs",
+    "model_name": "cat-dog-panda-classifier.pt",
+    "experiments_file": "Logs_Checkpoints/experiments.xlsx"
+  },
+  "extras": {}
+}

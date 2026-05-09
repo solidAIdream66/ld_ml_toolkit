@@ -35,6 +35,7 @@ class ClassifierModule(pl.LightningModule):
         train_metric: nn.Module,
         valid_metric: nn.Module,
         lr_scheduler_config=None,
+        image_size=None,
     ):
         super().__init__()
         self.model = model
@@ -44,6 +45,9 @@ class ClassifierModule(pl.LightningModule):
         self.train_metric = train_metric
         self.valid_metric = valid_metric
         self.lr_scheduler_config = lr_scheduler_config
+        if image_size is not None:
+            h, w = image_size
+            self.example_input_array = torch.zeros(1, 3, h, w)
 
     def forward(self, x):
         return self.model(x)

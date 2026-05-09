@@ -1,18 +1,25 @@
 from pathlib import Path
-from typing import Dict, Sequence, Tuple, Union
+from typing import Callable, Dict, Sequence, Tuple, Union
 
 import pandas as pd
 from PIL import Image
+from torchvision.datasets.folder import find_classes as find_imagefolder_classes
 
 import torch
 from torch.utils.data import DataLoader, Dataset
 
 from .configs import DataConfig
 from .data_pipeline import image_common_transforms
+from .dataset.csv_folder import find_classes as find_csvfolder_classes
 
 
 class TestImageDataset(Dataset):
-    def __init__(self, image_ids: Sequence[str], image_root: Union[str, Path], transform):
+    def __init__(
+        self,
+        image_ids: Sequence[str],
+        image_root: Union[str, Path],
+        transform: Callable,
+    ):
         self.image_ids = [str(image_id) for image_id in image_ids]
         self.image_root = Path(image_root)
         self.transform = transform
@@ -20,9 +27,17 @@ class TestImageDataset(Dataset):
     def __len__(self) -> int:
         return len(self.image_ids)
 
+    def _resolve_image_path(self, image_id: str) -> Path:
+        image_rel_path = Path(image_id)
+        image_path = self.image_root / image_rel_path
+        if image_path.suffix:
+            return image_path
+        return image_path.with_suffix(".jpg")
+
     def __getitem__(self, index: int):
         image_id = self.image_ids[index]
-        image = Image.open(self.image_root / f"{image_id}.jpg").convert("RGB")
+        image_path = self._resolve_image_path(image_id)
+        image = Image.open(image_path).convert("RGB")
         return self.transform(image), image_id
 
 
@@ -34,11 +49,42 @@ def _resolve_image_root(root: Path) -> Path:
     return root
 
 
-def _build_idx_to_class(root: Path) -> Dict[int, str]:
-    train_csv = root / "train.csv"
-    train_df = pd.read_csv(train_csv)
-    classes = sorted(train_df["class"].astype(str).unique().tolist())
-    return {idx: cls_name for idx, cls_name in enumerate(classes)}
+def _resolve_split_dir(root: Path, split_name: str) -> Path:
+    direct = root / split_name
+    if direct.exists():
+        return direct
+
+    lower_map = {p.name.lower(): p for p in root.iterdir() if p.is_dir()}
+    candidate = lower_map.get(split_name.lower())
+    if candidate:
+        return candidate
+
+    raise FileNotFoundError(f"Split '{split_name}' not found under {root}")
+
+
+def _build_idx_to_class(root: Path, dataset_cfg: Dict[str, object]) -> Dict[int, str]:
+    dataset_type = str(dataset_cfg.get("type", "CSVFolder")).strip().lower()
+
+    if dataset_type in {"csvfolder", "cvsfolder"}:
+        classes, class_to_idx = find_csvfolder_classes(root / "train.csv")
+    elif dataset_type == "imagefolder":
+        train_split = str(dataset_cfg.get("train_split", "Train"))
+        train_root = _resolve_split_dir(root, train_split)
+        classes, class_to_idx = find_imagefolder_classes(str(train_root))
+    else:
+        raise ValueError(f"Unsupported dataset type for submission: {dataset_type}")
+
+    return {idx: cls_name for cls_name, idx in class_to_idx.items()}
+
+
+def _resolve_test_root(root: Path, dataset_cfg: Dict[str, object]) -> Path:
+    dataset_type = str(dataset_cfg.get("type", "CSVFolder")).strip().lower()
+    if dataset_type in {"csvfolder", "cvsfolder"}:
+        return _resolve_image_root(root)
+    if dataset_type == "imagefolder":
+        test_split = str(dataset_cfg.get("test_split", "Test"))
+        return _resolve_split_dir(root, test_split)
+    raise ValueError(f"Unsupported dataset type for submission: {dataset_type}")
 
 
 def generate_submission(
@@ -63,9 +109,10 @@ def generate_submission(
     model.to(device)
     model.eval()
 
-    root = Path(data_config.data_root)
-    test_root = _resolve_image_root(root)
-    idx_to_class = _build_idx_to_class(root)
+    dataset_cfg = dict(data_config.dataset or {})
+    root = Path(str(dataset_cfg.get("root", "dataset")))
+    test_root = _resolve_test_root(root, dataset_cfg)
+    idx_to_class = _build_idx_to_class(root, dataset_cfg)
 
     test_df = pd.read_csv(test_csv_path)
     test_id_col = "id" if "id" in test_df.columns else "ID"
